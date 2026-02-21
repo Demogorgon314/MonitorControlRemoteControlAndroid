@@ -97,6 +97,45 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun `refreshOnResume should skip while initial loading is in progress`() = runTest {
+        val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
+        val repository = FakeRepository()
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = HomeViewModel(
+            settingsStore = store,
+            repositoryFactory = { repository },
+            hostScanner = FakeHostScanner(),
+            ioDispatcher = dispatcher
+        )
+
+        viewModel.refreshOnResume()
+        advanceUntilIdle()
+
+        assertEquals(1, repository.displaysCalls)
+    }
+
+    @Test
+    fun `refreshOnResume should request latest displays when resumed`() = runTest {
+        val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
+        val repository = FakeRepository()
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = HomeViewModel(
+            settingsStore = store,
+            repositoryFactory = { repository },
+            hostScanner = FakeHostScanner(),
+            ioDispatcher = dispatcher
+        )
+
+        advanceUntilIdle()
+        val callCountBeforeRefresh = repository.displaysCalls
+
+        viewModel.refreshOnResume()
+        advanceUntilIdle()
+
+        assertTrue(repository.displaysCalls > callCountBeforeRefresh)
+    }
+
+    @Test
     fun `global brightness should sync on every percent change`() = runTest {
         val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
         val repository = FakeRepository()

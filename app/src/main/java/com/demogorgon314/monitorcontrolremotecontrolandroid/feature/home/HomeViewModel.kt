@@ -101,6 +101,17 @@ class HomeViewModel(
         }
     }
 
+    fun refreshOnResume() {
+        val state = _uiState.value
+        if (state.isLoading || state.isRefreshing || state.connectionStatus == ConnectionStatus.Connecting) {
+            return
+        }
+        if (state.showSettingsDialog || currentSettings == null) {
+            return
+        }
+        refresh()
+    }
+
     fun openSettings() {
         val draft = currentSettings?.toDraft() ?: _uiState.value.settingsDraft
         _uiState.update {
