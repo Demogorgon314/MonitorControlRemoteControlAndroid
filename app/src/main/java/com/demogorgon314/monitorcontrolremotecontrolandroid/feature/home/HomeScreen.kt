@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +21,8 @@ import androidx.compose.material.icons.outlined.WifiOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +30,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -36,6 +40,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.ConnectionSettingsValidator
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.ScanMatchKind
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.ScannedHostCandidate
 import com.demogorgon314.monitorcontrolremotecontrolandroid.feature.home.components.DisplayCard
 import com.demogorgon314.monitorcontrolremotecontrolandroid.feature.home.components.GlobalControlCard
 import com.demogorgon314.monitorcontrolremotecontrolandroid.feature.settings.ConnectionSettingsDialog
@@ -50,6 +56,9 @@ fun HomeScreen(
     onHostChange: (String) -> Unit,
     onPortChange: (String) -> Unit,
     onTokenChange: (String) -> Unit,
+    onScanHostsRequested: (Boolean) -> Unit,
+    onScanResultSelected: (String) -> Unit,
+    onDismissScanResultPicker: () -> Unit,
     onSaveSettings: () -> Unit,
     onGlobalBrightnessChanged: (Int) -> Unit,
     onGlobalBrightnessChangeFinished: () -> Unit,
@@ -137,14 +146,68 @@ fun HomeScreen(
         ConnectionSettingsDialog(
             draft = uiState.settingsDraft,
             validation = uiState.settingsValidation,
+            isScanningHosts = uiState.isScanningHosts,
+            scanErrorMessage = uiState.scanErrorMessage,
             saveEnabled = currentValidation.isValid,
             onHostChange = onHostChange,
             onPortChange = onPortChange,
             onTokenChange = onTokenChange,
+            onScanHosts = { onScanHostsRequested(true) },
             onSave = onSaveSettings,
             onDismiss = onDismissSettings
         )
     }
+
+    if (uiState.showScanResultPicker && uiState.scanCandidates.isNotEmpty()) {
+        ScanResultPickerDialog(
+            candidates = uiState.scanCandidates,
+            onSelect = onScanResultSelected,
+            onDismiss = onDismissScanResultPicker
+        )
+    }
+}
+
+@Composable
+private fun ScanResultPickerDialog(
+    candidates: List<ScannedHostCandidate>,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "选择可用主机") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 320.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                candidates.forEach { candidate ->
+                    Button(
+                        onClick = { onSelect(candidate.host) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(text = candidate.host)
+                            Text(
+                                text = "${candidate.latencyMs} ms · ${candidate.matchKind.label()}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "取消")
+            }
+        },
+        confirmButton = {}
+    )
 }
 
 @Composable
@@ -230,6 +293,11 @@ private fun HeaderBar(
             }
         }
     }
+}
+
+private fun ScanMatchKind.label(): String = when (this) {
+    ScanMatchKind.HEALTH_OK -> "服务可直接连接"
+    ScanMatchKind.UNAUTHORIZED_SIGNATURE -> "检测到服务（需填 Token）"
 }
 
 @Composable

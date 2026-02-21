@@ -3,6 +3,7 @@ package com.demogorgon314.monitorcontrolremotecontrolandroid.feature.home
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.ConnectionSettingsDraft
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.ConnectionSettingsValidation
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.ConnectionSettingsValidator
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.ScannedHostCandidate
 
 sealed interface ConnectionStatus {
     data object Disconnected : ConnectionStatus
@@ -29,6 +30,11 @@ data class HomeUiState(
     val globalBrightness: Int = 50,
     val isGlobalBusy: Boolean = false,
     val showSettingsDialog: Boolean = false,
+    val isScanningHosts: Boolean = false,
+    val scanCandidates: List<ScannedHostCandidate> = emptyList(),
+    val showScanResultPicker: Boolean = false,
+    val scanErrorMessage: String? = null,
+    val hasAutoScanRunForDialog: Boolean = false,
     val settingsDraft: ConnectionSettingsDraft = ConnectionSettingsDraft(
         port = ConnectionSettingsValidator.DEFAULT_PORT.toString()
     ),

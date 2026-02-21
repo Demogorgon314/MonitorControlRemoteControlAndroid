@@ -8,6 +8,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.ConnectionSettingsDraft
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.ConnectionSettingsValidation
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.ScanMatchKind
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.ScannedHostCandidate
 import com.demogorgon314.monitorcontrolremotecontrolandroid.ui.theme.MonitorControlRemoteControlAndroidTheme
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -54,6 +56,9 @@ class HomeScreenTest {
                     onHostChange = {},
                     onPortChange = {},
                     onTokenChange = {},
+                    onScanHostsRequested = {},
+                    onScanResultSelected = {},
+                    onDismissScanResultPicker = {},
                     onSaveSettings = {},
                     onGlobalBrightnessChanged = {},
                     onGlobalBrightnessChangeFinished = {},
@@ -97,6 +102,9 @@ class HomeScreenTest {
                     onHostChange = {},
                     onPortChange = {},
                     onTokenChange = {},
+                    onScanHostsRequested = {},
+                    onScanResultSelected = {},
+                    onDismissScanResultPicker = {},
                     onSaveSettings = {},
                     onGlobalBrightnessChanged = {},
                     onGlobalBrightnessChangeFinished = {},
@@ -130,6 +138,9 @@ class HomeScreenTest {
                     onHostChange = {},
                     onPortChange = {},
                     onTokenChange = {},
+                    onScanHostsRequested = {},
+                    onScanResultSelected = {},
+                    onDismissScanResultPicker = {},
                     onSaveSettings = {},
                     onGlobalBrightnessChanged = {},
                     onGlobalBrightnessChangeFinished = {},
@@ -144,5 +155,89 @@ class HomeScreenTest {
 
         composeRule.onNodeWithTag("refresh_button").performClick()
         assertTrue(refreshed)
+    }
+
+    @Test
+    fun settings_dialog_should_show_scan_progress() {
+        val state = HomeUiState(
+            showSettingsDialog = true,
+            isScanningHosts = true
+        )
+
+        composeRule.setContent {
+            MonitorControlRemoteControlAndroidTheme {
+                HomeScreen(
+                    uiState = state,
+                    snackbarHostState = SnackbarHostState(),
+                    onRefresh = {},
+                    onOpenSettings = {},
+                    onDismissSettings = {},
+                    onHostChange = {},
+                    onPortChange = {},
+                    onTokenChange = {},
+                    onScanHostsRequested = {},
+                    onScanResultSelected = {},
+                    onDismissScanResultPicker = {},
+                    onSaveSettings = {},
+                    onGlobalBrightnessChanged = {},
+                    onGlobalBrightnessChangeFinished = {},
+                    onPowerAllOn = {},
+                    onPowerAllOff = {},
+                    onDisplayBrightnessChanged = { _, _ -> },
+                    onDisplayBrightnessChangeFinished = {},
+                    onDisplayPowerToggle = { _, _ -> }
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("正在扫描局域网主机...").assertIsDisplayed()
+    }
+
+    @Test
+    fun scan_picker_should_show_candidates() {
+        val state = HomeUiState(
+            showScanResultPicker = true,
+            scanCandidates = listOf(
+                ScannedHostCandidate(
+                    host = "192.168.1.10",
+                    latencyMs = 42,
+                    matchKind = ScanMatchKind.HEALTH_OK
+                ),
+                ScannedHostCandidate(
+                    host = "192.168.1.22",
+                    latencyMs = 55,
+                    matchKind = ScanMatchKind.UNAUTHORIZED_SIGNATURE
+                )
+            )
+        )
+
+        composeRule.setContent {
+            MonitorControlRemoteControlAndroidTheme {
+                HomeScreen(
+                    uiState = state,
+                    snackbarHostState = SnackbarHostState(),
+                    onRefresh = {},
+                    onOpenSettings = {},
+                    onDismissSettings = {},
+                    onHostChange = {},
+                    onPortChange = {},
+                    onTokenChange = {},
+                    onScanHostsRequested = {},
+                    onScanResultSelected = {},
+                    onDismissScanResultPicker = {},
+                    onSaveSettings = {},
+                    onGlobalBrightnessChanged = {},
+                    onGlobalBrightnessChangeFinished = {},
+                    onPowerAllOn = {},
+                    onPowerAllOff = {},
+                    onDisplayBrightnessChanged = { _, _ -> },
+                    onDisplayBrightnessChangeFinished = {},
+                    onDisplayPowerToggle = { _, _ -> }
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("192.168.1.10").assertIsDisplayed()
+        composeRule.onNodeWithText("192.168.1.22").assertIsDisplayed()
     }
 }

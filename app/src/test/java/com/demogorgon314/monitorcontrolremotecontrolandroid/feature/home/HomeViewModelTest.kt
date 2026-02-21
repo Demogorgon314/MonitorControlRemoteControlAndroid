@@ -8,6 +8,9 @@ import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.DisplayC
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.DisplayStatus
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.HealthResponse
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.SinglePowerResponse
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.MonitorControlHostScanner
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.ScanMatchKind
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.ScannedHostCandidate
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.repository.MonitorControlApiException
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.repository.MonitorControlRepositoryContract
 import com.demogorgon314.monitorcontrolremotecontrolandroid.testutil.MainDispatcherRule
@@ -15,7 +18,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -36,6 +41,7 @@ class HomeViewModelTest {
         val viewModel = HomeViewModel(
             settingsStore = store,
             repositoryFactory = { FakeRepository() },
+            hostScanner = FakeHostScanner(),
             ioDispatcher = dispatcher
         )
 
@@ -54,6 +60,7 @@ class HomeViewModelTest {
         val viewModel = HomeViewModel(
             settingsStore = store,
             repositoryFactory = { repository },
+            hostScanner = FakeHostScanner(),
             ioDispatcher = dispatcher
         )
 
@@ -73,6 +80,7 @@ class HomeViewModelTest {
         val viewModel = HomeViewModel(
             settingsStore = store,
             repositoryFactory = { repository },
+            hostScanner = FakeHostScanner(),
             ioDispatcher = dispatcher
         )
 
@@ -93,6 +101,7 @@ class HomeViewModelTest {
         val viewModel = HomeViewModel(
             settingsStore = store,
             repositoryFactory = { repository },
+            hostScanner = FakeHostScanner(),
             ioDispatcher = dispatcher
         )
 
@@ -127,6 +136,7 @@ class HomeViewModelTest {
         val viewModel = HomeViewModel(
             settingsStore = store,
             repositoryFactory = { repository },
+            hostScanner = FakeHostScanner(),
             ioDispatcher = dispatcher
         )
 
@@ -142,6 +152,138 @@ class HomeViewModelTest {
 
         val display = viewModel.uiState.value.displays.first()
         assertFalse(display.isBusy)
+    }
+
+    @Test
+    fun `open settings should auto scan and fill host on single result`() = runTest {
+        val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
+        val scanner = FakeHostScanner(
+            results = listOf(
+                ScannedHostCandidate(
+                    host = "192.168.1.10",
+                    latencyMs = 15,
+                    matchKind = ScanMatchKind.HEALTH_OK
+                )
+            )
+        )
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = HomeViewModel(
+            settingsStore = store,
+            repositoryFactory = { FakeRepository() },
+            hostScanner = scanner,
+            ioDispatcher = dispatcher
+        )
+
+        advanceUntilIdle()
+        viewModel.openSettings()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(1, scanner.calls)
+        assertEquals("192.168.1.10", state.settingsDraft.host)
+        assertFalse(state.showScanResultPicker)
+    }
+
+    @Test
+    fun `scan should show picker when multiple results found`() = runTest {
+        val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
+        val scanner = FakeHostScanner(
+            results = listOf(
+                ScannedHostCandidate("192.168.1.10", 15, ScanMatchKind.HEALTH_OK),
+                ScannedHostCandidate("192.168.1.22", 25, ScanMatchKind.UNAUTHORIZED_SIGNATURE)
+            )
+        )
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = HomeViewModel(
+            settingsStore = store,
+            repositoryFactory = { FakeRepository() },
+            hostScanner = scanner,
+            ioDispatcher = dispatcher
+        )
+
+        advanceUntilIdle()
+        viewModel.openSettings()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.showScanResultPicker)
+        assertEquals(2, viewModel.uiState.value.scanCandidates.size)
+    }
+
+    @Test
+    fun `manual scan should run again after auto scan`() = runTest {
+        val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
+        val scanner = FakeHostScanner(
+            results = listOf(
+                ScannedHostCandidate("192.168.1.10", 15, ScanMatchKind.HEALTH_OK)
+            )
+        )
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = HomeViewModel(
+            settingsStore = store,
+            repositoryFactory = { FakeRepository() },
+            hostScanner = scanner,
+            ioDispatcher = dispatcher
+        )
+
+        advanceUntilIdle()
+        viewModel.openSettings()
+        advanceUntilIdle()
+        viewModel.onScanHostsRequested(manual = true)
+        advanceUntilIdle()
+
+        assertEquals(2, scanner.calls)
+    }
+
+    @Test
+    fun `scan should show error when no candidate found`() = runTest {
+        val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
+        val scanner = FakeHostScanner(results = emptyList())
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = HomeViewModel(
+            settingsStore = store,
+            repositoryFactory = { FakeRepository() },
+            hostScanner = scanner,
+            ioDispatcher = dispatcher
+        )
+
+        advanceUntilIdle()
+        viewModel.openSettings()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.showScanResultPicker)
+        assertTrue(state.scanErrorMessage?.contains("未扫描到可用主机") == true)
+    }
+
+    @Test
+    fun `scan should ignore repeated request while running and cancel on dismiss`() = runTest {
+        val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
+        val scanner = FakeHostScanner(
+            results = listOf(
+                ScannedHostCandidate("192.168.1.66", 25, ScanMatchKind.HEALTH_OK)
+            ),
+            delayMs = 1_000
+        )
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = HomeViewModel(
+            settingsStore = store,
+            repositoryFactory = { FakeRepository() },
+            hostScanner = scanner,
+            ioDispatcher = dispatcher
+        )
+
+        advanceUntilIdle()
+        viewModel.openSettings()
+        advanceTimeBy(1)
+        viewModel.onScanHostsRequested(manual = true)
+        viewModel.dismissSettings()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(1, scanner.calls)
+        assertFalse(state.showSettingsDialog)
+        assertFalse(state.isScanningHosts)
+        assertEquals(TEST_SETTINGS.host, state.settingsDraft.host)
     }
 
     private class FakeSettingsStore(initialSettings: ConnectionSettings?) : ConnectionSettingsStoreDataSource {
@@ -253,6 +395,22 @@ class HomeViewModelTest {
                 requestedState = "on",
                 acceptedDisplayIds = displaysState.map { it.id }
             )
+        }
+    }
+
+    private class FakeHostScanner(
+        private val results: List<ScannedHostCandidate> = emptyList(),
+        private val delayMs: Long = 0
+    ) : MonitorControlHostScanner {
+        var calls: Int = 0
+            private set
+
+        override suspend fun scan(token: String, preferredHost: String?): List<ScannedHostCandidate> {
+            calls += 1
+            if (delayMs > 0) {
+                delay(delayMs)
+            }
+            return results
         }
     }
 

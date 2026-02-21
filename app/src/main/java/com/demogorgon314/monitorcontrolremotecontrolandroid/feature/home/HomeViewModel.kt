@@ -12,12 +12,16 @@ import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.Connectio
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.toDraft
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.DisplayStatus
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.MonitorControlNetworkFactory
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.DefaultMonitorControlHostScanner
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.MonitorControlHostScanner
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.ScannedHostCandidate
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.repository.MonitorControlApiException
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.repository.MonitorControlRepository
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.repository.MonitorControlRepositoryContract
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +37,7 @@ import kotlin.math.roundToInt
 class HomeViewModel(
     private val settingsStore: ConnectionSettingsStoreDataSource,
     private val repositoryFactory: (ConnectionSettings) -> MonitorControlRepositoryContract = ::defaultRepositoryFactory,
+    private val hostScanner: MonitorControlHostScanner = DefaultMonitorControlHostScanner(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(HomeUiState(isLoading = true))
@@ -45,6 +50,7 @@ class HomeViewModel(
     private var repository: MonitorControlRepositoryContract? = null
     private var lastSentGlobalBrightness: Int? = null
     private val lastSentDisplayBrightness = mutableMapOf<Long, Int>()
+    private var scanJob: Job? = null
 
     init {
         bootstrap()
@@ -94,16 +100,27 @@ class HomeViewModel(
             it.copy(
                 showSettingsDialog = true,
                 settingsDraft = draft,
-                settingsValidation = ConnectionSettingsValidation()
+                settingsValidation = ConnectionSettingsValidation(),
+                scanErrorMessage = null,
+                scanCandidates = emptyList(),
+                showScanResultPicker = false,
+                hasAutoScanRunForDialog = false
             )
         }
+        onScanHostsRequested(manual = false)
     }
 
     fun dismissSettings() {
+        cancelHostScan()
         _uiState.update {
             it.copy(
                 showSettingsDialog = false,
-                settingsValidation = ConnectionSettingsValidation()
+                settingsValidation = ConnectionSettingsValidation(),
+                isScanningHosts = false,
+                scanCandidates = emptyList(),
+                showScanResultPicker = false,
+                scanErrorMessage = null,
+                hasAutoScanRunForDialog = false
             )
         }
     }
@@ -120,7 +137,83 @@ class HomeViewModel(
         updateSettingsDraft(_uiState.value.settingsDraft.copy(token = token))
     }
 
+    fun onScanHostsRequested(manual: Boolean) {
+        val currentState = _uiState.value
+        if (!currentState.showSettingsDialog || currentState.isScanningHosts) {
+            return
+        }
+        if (!manual && currentState.hasAutoScanRunForDialog) {
+            return
+        }
+
+        val draftHost = currentState.settingsDraft.host
+        val draftToken = currentState.settingsDraft.token
+        _uiState.update {
+            it.copy(
+                isScanningHosts = true,
+                scanErrorMessage = null,
+                showScanResultPicker = false,
+                hasAutoScanRunForDialog = true
+            )
+        }
+
+        cancelHostScan()
+        scanJob = viewModelScope.launch(ioDispatcher) {
+            try {
+                runCatching {
+                    hostScanner.scan(
+                        token = draftToken,
+                        preferredHost = draftHost
+                    )
+                }.onSuccess { results ->
+                    handleScanSuccess(results)
+                }.onFailure { error ->
+                    if (error is CancellationException) {
+                        return@onFailure
+                    }
+                    _uiState.update {
+                        if (!it.showSettingsDialog) {
+                            it
+                        } else {
+                            it.copy(
+                                isScanningHosts = false,
+                                scanCandidates = emptyList(),
+                                showScanResultPicker = false,
+                                scanErrorMessage = "扫描失败，请稍后重试"
+                            )
+                        }
+                    }
+                    if (manual) {
+                        emitMessage("自动扫描失败，请稍后重试")
+                    }
+                }
+            } finally {
+                scanJob = null
+            }
+        }
+    }
+
+    fun onScanResultSelected(host: String) {
+        val normalizedHost = host.trim()
+        if (normalizedHost.isBlank()) {
+            return
+        }
+        _uiState.update {
+            it.copy(
+                settingsDraft = it.settingsDraft.copy(host = normalizedHost),
+                showScanResultPicker = false,
+                scanErrorMessage = null
+            )
+        }
+        emitMessage("已填充主机地址：$normalizedHost")
+    }
+
+    fun dismissScanResultPicker() {
+        _uiState.update { it.copy(showScanResultPicker = false) }
+    }
+
     fun saveSettings() {
+        cancelHostScan()
         val draft = _uiState.value.settingsDraft
         val validation = ConnectionSettingsValidator.validate(
             host = draft.host,
@@ -144,7 +237,12 @@ class HomeViewModel(
                 it.copy(
                     showSettingsDialog = false,
                     settingsValidation = ConnectionSettingsValidation(),
-                    settingsDraft = settings.toDraft()
+                    settingsDraft = settings.toDraft(),
+                    isScanningHosts = false,
+                    scanCandidates = emptyList(),
+                    showScanResultPicker = false,
+                    scanErrorMessage = null,
+                    hasAutoScanRunForDialog = false
                 )
             }
             connectAndLoad(settings, showLoading = true, showRefresh = false)
@@ -271,6 +369,7 @@ class HomeViewModel(
     }
 
     override fun onCleared() {
+        cancelHostScan()
         super.onCleared()
     }
 
@@ -282,9 +381,11 @@ class HomeViewModel(
                     it.copy(
                         isLoading = false,
                         connectionStatus = ConnectionStatus.Disconnected,
-                        showSettingsDialog = true
+                        showSettingsDialog = true,
+                        hasAutoScanRunForDialog = false
                     )
                 }
+                onScanHostsRequested(manual = false)
                 return@launch
             }
 
@@ -347,7 +448,8 @@ class HomeViewModel(
         _uiState.update {
             it.copy(
                 settingsDraft = draft,
-                settingsValidation = ConnectionSettingsValidation()
+                settingsValidation = ConnectionSettingsValidation(),
+                scanErrorMessage = null
             )
         }
     }
@@ -453,6 +555,52 @@ class HomeViewModel(
                 throw error
             }
         }
+    }
+
+    private fun handleScanSuccess(results: List<ScannedHostCandidate>) {
+        _uiState.update { state ->
+            if (!state.showSettingsDialog) {
+                return@update state
+            }
+
+            when (results.size) {
+                0 -> state.copy(
+                    isScanningHosts = false,
+                    scanCandidates = emptyList(),
+                    showScanResultPicker = false,
+                    scanErrorMessage = "未扫描到可用主机，请确认同一局域网且 Mac 已启用 Remote HTTP API"
+                )
+
+                1 -> {
+                    val host = results.first().host
+                    state.copy(
+                        isScanningHosts = false,
+                        settingsDraft = state.settingsDraft.copy(host = host),
+                        scanCandidates = results,
+                        showScanResultPicker = false,
+                        scanErrorMessage = null
+                    )
+                }
+
+                else -> state.copy(
+                    isScanningHosts = false,
+                    scanCandidates = results,
+                    showScanResultPicker = true,
+                    scanErrorMessage = null
+                )
+            }
+        }
+
+        when (results.size) {
+            1 -> emitMessage("已自动填充主机地址：${results.first().host}")
+            0 -> Unit
+            else -> emitMessage("扫描到多个主机，请选择目标设备")
+        }
+    }
+
+    private fun cancelHostScan() {
+        scanJob?.cancel()
+        scanJob = null
     }
 
     private fun setDisplayBusy(displayId: Long, isBusy: Boolean) {
