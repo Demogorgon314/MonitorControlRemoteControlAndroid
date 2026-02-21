@@ -15,8 +15,15 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -31,6 +38,13 @@ fun DisplayCard(
     onPowerToggle: (Long, Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptic = LocalHapticFeedback.current
+    var lastHapticBrightness by remember(display.id) { mutableIntStateOf(display.brightness) }
+
+    LaunchedEffect(display.id, display.brightness) {
+        lastHapticBrightness = display.brightness
+    }
+
     val canAdjustBrightness = connected &&
         !display.isBusy &&
         display.canControlBrightness &&
@@ -73,7 +87,10 @@ fun DisplayCard(
                 }
                 Switch(
                     checked = display.powerOn,
-                    onCheckedChange = { onPowerToggle(display.id, it) },
+                    onCheckedChange = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onPowerToggle(display.id, it)
+                    },
                     enabled = canTogglePower
                 )
             }
@@ -96,7 +113,14 @@ fun DisplayCard(
 
                 Slider(
                     value = display.brightness.toFloat(),
-                    onValueChange = { onBrightnessChanged(display.id, it.toInt()) },
+                    onValueChange = {
+                        val nextValue = it.toInt().coerceIn(0, 100)
+                        if (nextValue != lastHapticBrightness) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            lastHapticBrightness = nextValue
+                        }
+                        onBrightnessChanged(display.id, nextValue)
+                    },
                     valueRange = 0f..100f,
                     enabled = canAdjustBrightness,
                     onValueChangeFinished = { onBrightnessChangeFinished(display.id) }

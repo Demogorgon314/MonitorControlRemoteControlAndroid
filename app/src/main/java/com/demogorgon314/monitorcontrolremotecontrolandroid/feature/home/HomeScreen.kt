@@ -29,7 +29,9 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -152,6 +154,8 @@ private fun HeaderBar(
     onRefresh: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
+
     Row(
         modifier = Modifier
             .statusBarsPadding()
@@ -199,7 +203,10 @@ private fun HeaderBar(
             )
 
             IconButton(
-                onClick = onRefresh,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onRefresh()
+                },
                 enabled = !refreshing,
                 modifier = Modifier.testTag("refresh_button")
             ) {
@@ -210,7 +217,10 @@ private fun HeaderBar(
             }
 
             IconButton(
-                onClick = onOpenSettings,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onOpenSettings()
+                },
                 modifier = Modifier.testTag("settings_button")
             ) {
                 Icon(

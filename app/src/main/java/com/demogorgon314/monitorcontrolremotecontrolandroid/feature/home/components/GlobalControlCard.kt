@@ -17,8 +17,15 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
@@ -33,6 +40,13 @@ fun GlobalControlCard(
     onPowerAllOff: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptic = LocalHapticFeedback.current
+    var lastHapticBrightness by remember { mutableIntStateOf(brightness) }
+
+    LaunchedEffect(brightness) {
+        lastHapticBrightness = brightness
+    }
+
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -74,7 +88,14 @@ fun GlobalControlCard(
                 }
                 Slider(
                     value = brightness.toFloat(),
-                    onValueChange = { onBrightnessChanged(it.toInt()) },
+                    onValueChange = {
+                        val nextValue = it.toInt().coerceIn(0, 100)
+                        if (nextValue != lastHapticBrightness) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            lastHapticBrightness = nextValue
+                        }
+                        onBrightnessChanged(nextValue)
+                    },
                     valueRange = 0f..100f,
                     enabled = enabled && !busy,
                     onValueChangeFinished = onBrightnessChangeFinished
@@ -86,7 +107,10 @@ fun GlobalControlCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 TextButton(
-                    onClick = onPowerAllOn,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onPowerAllOn()
+                    },
                     enabled = enabled && !busy,
                     modifier = Modifier.weight(1f)
                 ) {
@@ -97,7 +121,10 @@ fun GlobalControlCard(
                     Text(text = "全部开启")
                 }
                 Button(
-                    onClick = onPowerAllOff,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onPowerAllOff()
+                    },
                     enabled = enabled && !busy,
                     modifier = Modifier.weight(1f)
                 ) {
