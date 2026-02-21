@@ -11,6 +11,18 @@ data class DisplayCapabilities(
     val power: Boolean
 )
 
+data class InputSource(
+    val code: Int,
+    val name: String
+)
+
+data class DisplayInputStatus(
+    val supported: Boolean = false,
+    val bestEffort: Boolean = true,
+    val current: InputSource? = null,
+    val available: List<InputSource> = emptyList()
+)
+
 data class DisplayStatus(
     val id: Long,
     val name: String,
@@ -21,7 +33,8 @@ data class DisplayStatus(
     val brightness: Int,
     val volume: Int? = null,
     val powerState: String,
-    val capabilities: DisplayCapabilities
+    val capabilities: DisplayCapabilities,
+    val input: DisplayInputStatus = DisplayInputStatus()
 )
 
 data class DisplaysResponse(
@@ -38,6 +51,11 @@ data class BrightnessRequest(
 
 data class PowerRequest(
     val state: String
+)
+
+data class SetInputRequest(
+    val name: String? = null,
+    val code: Int? = null
 )
 
 data class SinglePowerResponse(

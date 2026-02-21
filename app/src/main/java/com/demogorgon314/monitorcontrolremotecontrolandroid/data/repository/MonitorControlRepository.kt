@@ -7,6 +7,7 @@ import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.DisplayS
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.HealthResponse
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.MonitorControlApi
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.PowerRequest
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.SetInputRequest
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.SinglePowerResponse
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.delay
@@ -23,6 +24,7 @@ interface MonitorControlRepositoryContract {
     suspend fun setAllBrightness(value: Int): List<DisplayStatus>
     suspend fun setVolume(displayId: Long, value: Int): DisplayStatus
     suspend fun setAllVolume(value: Int): List<DisplayStatus>
+    suspend fun setInput(displayId: Long, code: Int): DisplayStatus
     suspend fun powerOff(displayId: Long): SinglePowerResponse
     suspend fun powerOn(displayId: Long): SinglePowerResponse
     suspend fun powerOffAll(): AllPowerResponse
@@ -60,6 +62,10 @@ class MonitorControlRepository(
 
     override suspend fun setAllVolume(value: Int): List<DisplayStatus> {
         return execute { api.setAllVolume(BrightnessRequest(value)) }.displays
+    }
+
+    override suspend fun setInput(displayId: Long, code: Int): DisplayStatus {
+        return execute { api.setDisplayInput(displayId, SetInputRequest(code = code)) }.display
     }
 
     override suspend fun powerOff(displayId: Long): SinglePowerResponse {

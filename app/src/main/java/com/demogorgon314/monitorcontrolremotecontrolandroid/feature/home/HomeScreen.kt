@@ -71,6 +71,8 @@ fun HomeScreen(
     onDisplayVolumeChanged: (Long, Int) -> Unit,
     onDisplayVolumeChangeFinished: (Long) -> Unit,
     onDisplayPowerToggle: (Long, Boolean) -> Unit,
+    onDisplayInputSelected: (Long, Int, String?) -> Unit,
+    onDisplayInputCustomCodeSubmit: (Long, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val currentValidation = ConnectionSettingsValidator.validate(
@@ -143,7 +145,9 @@ fun HomeScreen(
                             onBrightnessChangeFinished = onDisplayBrightnessChangeFinished,
                             onVolumeChanged = onDisplayVolumeChanged,
                             onVolumeChangeFinished = onDisplayVolumeChangeFinished,
-                            onPowerToggle = onDisplayPowerToggle
+                            onPowerToggle = onDisplayPowerToggle,
+                            onInputSelected = onDisplayInputSelected,
+                            onInputCustomCodeSubmit = onDisplayInputCustomCodeSubmit
                         )
                     }
                 }

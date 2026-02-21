@@ -3,10 +3,13 @@ package com.demogorgon314.monitorcontrolremotecontrolandroid.feature.home
 import app.cash.turbine.test
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.ConnectionSettings
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.ConnectionSettingsStoreDataSource
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.DisplayInputStateStoreDataSource
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.AllPowerResponse
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.DisplayCapabilities
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.DisplayInputStatus
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.DisplayStatus
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.HealthResponse
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.InputSource
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.SinglePowerResponse
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.MonitorControlHostScanner
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.ScanMatchKind
@@ -189,6 +192,149 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun `init should fallback to local cached input when current is unknown`() = runTest {
+        val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
+        val inputStore = FakeDisplayInputStateStore()
+        inputStore.save(
+            host = TEST_SETTINGS.host,
+            port = TEST_SETTINGS.port,
+            displayId = 1L,
+            input = InputSource(code = 17, name = "HDMI-1")
+        )
+        val repository = FakeRepository(
+            initialDisplays = listOf(
+                buildDisplayStatus(
+                    input = DisplayInputStatus(
+                        supported = true,
+                        bestEffort = true,
+                        current = null,
+                        available = listOf(
+                            InputSource(code = 17, name = "HDMI-1"),
+                            InputSource(code = 15, name = "DP-1")
+                        )
+                    )
+                )
+            )
+        )
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = HomeViewModel(
+            settingsStore = store,
+            repositoryFactory = { repository },
+            hostScanner = FakeHostScanner(),
+            inputStateStore = inputStore,
+            ioDispatcher = dispatcher
+        )
+
+        advanceUntilIdle()
+
+        val display = viewModel.uiState.value.displays.first()
+        assertEquals(17, display.currentInput?.code)
+        assertEquals("HDMI-1", display.currentInput?.name)
+        assertTrue(display.isInputFromLocalCache)
+    }
+
+    @Test
+    fun `remote current input should override local cache and sync store`() = runTest {
+        val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
+        val inputStore = FakeDisplayInputStateStore()
+        inputStore.save(
+            host = TEST_SETTINGS.host,
+            port = TEST_SETTINGS.port,
+            displayId = 1L,
+            input = InputSource(code = 17, name = "HDMI-1")
+        )
+        val repository = FakeRepository(
+            initialDisplays = listOf(
+                buildDisplayStatus(
+                    input = DisplayInputStatus(
+                        supported = true,
+                        bestEffort = true,
+                        current = InputSource(code = 15, name = "DP-1"),
+                        available = listOf(
+                            InputSource(code = 17, name = "HDMI-1"),
+                            InputSource(code = 15, name = "DP-1")
+                        )
+                    )
+                )
+            )
+        )
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = HomeViewModel(
+            settingsStore = store,
+            repositoryFactory = { repository },
+            hostScanner = FakeHostScanner(),
+            inputStateStore = inputStore,
+            ioDispatcher = dispatcher
+        )
+
+        advanceUntilIdle()
+
+        val display = viewModel.uiState.value.displays.first()
+        assertEquals(15, display.currentInput?.code)
+        assertFalse(display.isInputFromLocalCache)
+
+        val persisted = inputStore.readForConnection(TEST_SETTINGS.host, TEST_SETTINGS.port)[1L]
+        assertEquals(15, persisted?.code)
+        assertEquals("DP-1", persisted?.name)
+    }
+
+    @Test
+    fun `select input should call repository and persist local state`() = runTest {
+        val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
+        val repository = FakeRepository()
+        val inputStore = FakeDisplayInputStateStore()
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = HomeViewModel(
+            settingsStore = store,
+            repositoryFactory = { repository },
+            hostScanner = FakeHostScanner(),
+            inputStateStore = inputStore,
+            ioDispatcher = dispatcher
+        )
+
+        advanceUntilIdle()
+        viewModel.onDisplayInputSelected(displayId = 1L, code = 15, name = "DP-1")
+        advanceUntilIdle()
+
+        assertEquals(1, repository.setInputCalls)
+        assertEquals(15, repository.lastSetInputCode)
+        val display = viewModel.uiState.value.displays.first()
+        assertEquals(15, display.currentInput?.code)
+        assertEquals("DP-1", display.currentInput?.name)
+        assertFalse(display.isInputFromLocalCache)
+
+        val persisted = inputStore.readForConnection(TEST_SETTINGS.host, TEST_SETTINGS.port)[1L]
+        assertEquals(15, persisted?.code)
+        assertEquals("DP-1", persisted?.name)
+    }
+
+    @Test
+    fun `select input failure should clear busy and emit message`() = runTest {
+        val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
+        val repository = FakeRepository(failInputToggle = true)
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = HomeViewModel(
+            settingsStore = store,
+            repositoryFactory = { repository },
+            hostScanner = FakeHostScanner(),
+            ioDispatcher = dispatcher
+        )
+
+        advanceUntilIdle()
+
+        viewModel.messages.test {
+            viewModel.onDisplayInputSelected(displayId = 1L, code = 15, name = "DP-1")
+            advanceUntilIdle()
+            val message = awaitItem()
+            assertTrue(message.isNotBlank())
+        }
+
+        assertEquals(1, repository.setInputCalls)
+        val display = viewModel.uiState.value.displays.first()
+        assertFalse(display.isBusy)
+    }
+
+    @Test
     fun `open settings should auto scan and fill host on single result`() = runTest {
         val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
         val scanner = FakeHostScanner(
@@ -337,9 +483,9 @@ class HomeViewModelTest {
     }
 
     private class FakeRepository(
-        private val failPowerToggle: Boolean = false
-    ) : MonitorControlRepositoryContract {
-        private var displaysState: List<DisplayStatus> = listOf(
+        private val failPowerToggle: Boolean = false,
+        private val failInputToggle: Boolean = false,
+        initialDisplays: List<DisplayStatus> = listOf(
             DisplayStatus(
                 id = 1L,
                 name = "LG",
@@ -354,9 +500,20 @@ class HomeViewModelTest {
                     brightness = true,
                     volume = true,
                     power = true
+                ),
+                input = DisplayInputStatus(
+                    supported = true,
+                    bestEffort = true,
+                    current = InputSource(code = 17, name = "HDMI-1"),
+                    available = listOf(
+                        InputSource(code = 17, name = "HDMI-1"),
+                        InputSource(code = 15, name = "DP-1")
+                    )
                 )
             )
         )
+    ) : MonitorControlRepositoryContract {
+        private var displaysState: List<DisplayStatus> = initialDisplays
 
         var displaysCalls: Int = 0
             private set
@@ -367,6 +524,10 @@ class HomeViewModelTest {
         var setAllVolumeCalls: Int = 0
             private set
         var lastSetAllVolume: Int = -1
+            private set
+        var setInputCalls: Int = 0
+            private set
+        var lastSetInputCode: Int = -1
             private set
 
         override suspend fun health(): HealthResponse {
@@ -404,6 +565,43 @@ class HomeViewModelTest {
             lastSetAllVolume = value
             displaysState = displaysState.map { it.copy(volume = value) }
             return displaysState
+        }
+
+        override suspend fun setInput(displayId: Long, code: Int): DisplayStatus {
+            setInputCalls += 1
+            lastSetInputCode = code
+            if (failInputToggle) {
+                throw MonitorControlApiException(
+                    httpCode = 500,
+                    apiCode = "internal_error",
+                    message = "input toggle failed"
+                )
+            }
+
+            val current = displaysState.first { it.id == displayId }
+            if (!current.input.supported) {
+                throw MonitorControlApiException(
+                    httpCode = 409,
+                    apiCode = "unsupported_operation",
+                    message = "input not supported"
+                )
+            }
+
+            val nextName = current.input.available.firstOrNull { it.code == code }?.name ?: "UNKNOWN-$code"
+            val nextCurrent = InputSource(code = code, name = nextName)
+            val nextAvailable = if (current.input.available.any { it.code == code }) {
+                current.input.available
+            } else {
+                listOf(nextCurrent) + current.input.available
+            }
+            val updated = current.copy(
+                input = current.input.copy(
+                    current = nextCurrent,
+                    available = nextAvailable
+                )
+            )
+            displaysState = displaysState.map { if (it.id == displayId) updated else it }
+            return updated
         }
 
         override suspend fun powerOff(displayId: Long): SinglePowerResponse {
@@ -452,6 +650,22 @@ class HomeViewModelTest {
         }
     }
 
+    private class FakeDisplayInputStateStore : DisplayInputStateStoreDataSource {
+        private val state = mutableMapOf<String, MutableMap<Long, InputSource>>()
+
+        override suspend fun readForConnection(host: String, port: Int): Map<Long, InputSource> {
+            return state[key(host = host, port = port)]?.toMap().orEmpty()
+        }
+
+        override suspend fun save(host: String, port: Int, displayId: Long, input: InputSource) {
+            state.getOrPut(key(host = host, port = port)) { mutableMapOf() }[displayId] = input
+        }
+
+        private fun key(host: String, port: Int): String {
+            return "${host.trim().lowercase()}:$port"
+        }
+    }
+
     private class FakeHostScanner(
         private val results: List<ScannedHostCandidate> = emptyList(),
         private val delayMs: Long = 0
@@ -474,5 +688,25 @@ class HomeViewModelTest {
             port = 51423,
             token = "token"
         )
+
+        private fun buildDisplayStatus(input: DisplayInputStatus): DisplayStatus {
+            return DisplayStatus(
+                id = 1L,
+                name = "LG",
+                friendlyName = "LG UltraWide",
+                type = "other",
+                isVirtual = false,
+                isDummy = false,
+                brightness = 68,
+                volume = 26,
+                powerState = "on",
+                capabilities = DisplayCapabilities(
+                    brightness = true,
+                    volume = true,
+                    power = true
+                ),
+                input = input
+            )
+        }
     }
 }

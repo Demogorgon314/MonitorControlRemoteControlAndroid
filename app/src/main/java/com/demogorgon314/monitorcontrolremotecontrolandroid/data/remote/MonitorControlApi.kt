@@ -45,4 +45,10 @@ interface MonitorControlApi {
     suspend fun setAllPower(
         @Body body: PowerRequest
     ): Response<AllPowerResponse>
+
+    @POST("api/v1/displays/{id}/input")
+    suspend fun setDisplayInput(
+        @Path("id") displayId: Long,
+        @Body body: SetInputRequest
+    ): Response<SingleDisplayResponse>
 }

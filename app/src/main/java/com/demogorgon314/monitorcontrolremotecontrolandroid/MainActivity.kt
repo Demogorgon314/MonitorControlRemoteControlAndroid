@@ -18,7 +18,8 @@ import kotlinx.coroutines.flow.collectLatest
 class MainActivity : ComponentActivity() {
     private val viewModel: HomeViewModel by viewModels {
         HomeViewModel.provideFactory(
-            settingsStore = HomeViewModel.createDefaultSettingsStore(applicationContext)
+            settingsStore = HomeViewModel.createDefaultSettingsStore(applicationContext),
+            inputStateStore = HomeViewModel.createDefaultInputStateStore(applicationContext)
         )
     }
 
@@ -59,7 +60,9 @@ class MainActivity : ComponentActivity() {
                     onDisplayBrightnessChangeFinished = viewModel::onDisplayBrightnessChangeFinished,
                     onDisplayVolumeChanged = viewModel::onDisplayVolumeChanged,
                     onDisplayVolumeChangeFinished = viewModel::onDisplayVolumeChangeFinished,
-                    onDisplayPowerToggle = viewModel::onDisplayPowerToggle
+                    onDisplayPowerToggle = viewModel::onDisplayPowerToggle,
+                    onDisplayInputSelected = viewModel::onDisplayInputSelected,
+                    onDisplayInputCustomCodeSubmit = viewModel::onDisplayInputCustomCodeSubmit
                 )
             }
         }

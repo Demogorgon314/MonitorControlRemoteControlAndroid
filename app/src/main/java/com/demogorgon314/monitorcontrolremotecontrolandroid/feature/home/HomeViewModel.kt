@@ -9,8 +9,11 @@ import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.Connectio
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.ConnectionSettingsStoreDataSource
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.ConnectionSettingsValidation
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.ConnectionSettingsValidator
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.DisplayInputStateStore
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.DisplayInputStateStoreDataSource
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.local.toDraft
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.DisplayStatus
+import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.InputSource
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.remote.MonitorControlNetworkFactory
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.DefaultMonitorControlHostScanner
 import com.demogorgon314.monitorcontrolremotecontrolandroid.data.scan.MonitorControlHostScanner
@@ -38,6 +41,7 @@ class HomeViewModel(
     private val settingsStore: ConnectionSettingsStoreDataSource,
     private val repositoryFactory: (ConnectionSettings) -> MonitorControlRepositoryContract = ::defaultRepositoryFactory,
     private val hostScanner: MonitorControlHostScanner = DefaultMonitorControlHostScanner(),
+    private val inputStateStore: DisplayInputStateStoreDataSource = NoOpDisplayInputStateStore,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(HomeUiState(isLoading = true))
@@ -73,7 +77,7 @@ class HomeViewModel(
 
         viewModelScope.launch(ioDispatcher) {
             _uiState.update { it.copy(isRefreshing = true) }
-            runCatching { loadDisplaysWithRetry(currentRepository) }
+            runCatching { loadDisplaysWithRetry(currentRepository, settings) }
                 .onSuccess { displays ->
                     _uiState.update { state ->
                         state.copy(
@@ -316,6 +320,10 @@ class HomeViewModel(
             emitMessage("连接未建立")
             return
         }
+        val settings = currentSettings ?: run {
+            emitMessage("连接信息缺失")
+            return
+        }
 
         viewModelScope.launch(ioDispatcher) {
             _uiState.update { it.copy(isGlobalBusy = true) }
@@ -325,7 +333,7 @@ class HomeViewModel(
                 } else {
                     currentRepository.powerOffAll()
                 }
-                loadDisplaysWithRetry(currentRepository)
+                loadDisplaysWithRetry(currentRepository, settings)
             }.onSuccess { displays ->
                 _uiState.update { state ->
                     state.copy(
@@ -399,6 +407,10 @@ class HomeViewModel(
             emitMessage("连接未建立")
             return
         }
+        val settings = currentSettings ?: run {
+            emitMessage("连接信息缺失")
+            return
+        }
 
         setDisplayBusy(displayId = displayId, isBusy = true)
         viewModelScope.launch(ioDispatcher) {
@@ -408,7 +420,7 @@ class HomeViewModel(
                 } else {
                     currentRepository.powerOff(displayId)
                 }
-                loadDisplaysWithRetry(currentRepository)
+                loadDisplaysWithRetry(currentRepository, settings)
             }.onSuccess { displays ->
                 _uiState.update { state ->
                     state.copy(
@@ -423,6 +435,61 @@ class HomeViewModel(
                 emitError(error)
             }
         }
+    }
+
+    fun onDisplayInputSelected(displayId: Long, code: Int, name: String?) {
+        if (code !in 0..255) {
+            emitMessage("输入代码需在 0-255")
+            return
+        }
+        if (_uiState.value.displays.firstOrNull { it.id == displayId }?.isBusy == true) {
+            return
+        }
+        val currentRepository = repository ?: run {
+            emitMessage("连接未建立")
+            return
+        }
+        val settings = currentSettings ?: run {
+            emitMessage("连接信息缺失")
+            return
+        }
+
+        setDisplayBusy(displayId = displayId, isBusy = true)
+        viewModelScope.launch(ioDispatcher) {
+            runCatching {
+                val updatedDisplay = currentRepository.setInput(displayId = displayId, code = code)
+                val resolvedName = name?.takeIf { it.isNotBlank() }
+                    ?: updatedDisplay.input.current?.name
+                    ?: "UNKNOWN-$code"
+                val persistedInput = InputSource(code = code, name = resolvedName)
+                inputStateStore.save(
+                    host = settings.host,
+                    port = settings.port,
+                    displayId = displayId,
+                    input = persistedInput
+                )
+                updatedDisplay.toUiModel(cachedInput = persistedInput)
+            }.onSuccess { updatedDisplay ->
+                _uiState.update { state ->
+                    val displays = state.displays.map { display ->
+                        if (display.id == displayId) updatedDisplay else display
+                    }
+                    state.copy(
+                        connectionStatus = ConnectionStatus.Connected,
+                        displays = displays,
+                        globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness),
+                        globalVolume = calculateGlobalVolume(displays, state.globalVolume)
+                    )
+                }
+            }.onFailure { error ->
+                setDisplayBusy(displayId = displayId, isBusy = false)
+                emitError(error)
+            }
+        }
+    }
+
+    fun onDisplayInputCustomCodeSubmit(displayId: Long, code: Int) {
+        onDisplayInputSelected(displayId = displayId, code = code, name = null)
     }
 
     override fun onCleared() {
@@ -474,7 +541,7 @@ class HomeViewModel(
             runCatching {
                 val createdRepository = repositoryFactory(settings)
                 createdRepository.health()
-                val displays = loadDisplaysWithRetry(createdRepository)
+                val displays = loadDisplaysWithRetry(createdRepository, settings)
                 createdRepository to displays
             }.onSuccess { (createdRepository, displays) ->
                 repository = createdRepository
@@ -542,12 +609,12 @@ class HomeViewModel(
 
     private suspend fun performGlobalBrightness(value: Int) {
         val currentRepository = repository ?: return
+        val settings = currentSettings ?: return
         try {
-            val displays = currentRepository.setAllBrightness(value)
-                .asSequence()
-                .filterNot { it.isDummy }
-                .map { it.toUiModel() }
-                .toList()
+            val displays = mapDisplaysWithInputState(
+                remoteDisplays = currentRepository.setAllBrightness(value),
+                settings = settings
+            )
             _uiState.update { state ->
                 if (state.globalBrightness != value) {
                     return@update state
@@ -569,12 +636,12 @@ class HomeViewModel(
 
     private suspend fun performGlobalVolume(value: Int) {
         val currentRepository = repository ?: return
+        val settings = currentSettings ?: return
         try {
-            val updatedDisplays = currentRepository.setAllVolume(value)
-                .asSequence()
-                .filterNot { it.isDummy }
-                .map { it.toUiModel() }
-                .toList()
+            val updatedDisplays = mapDisplaysWithInputState(
+                remoteDisplays = currentRepository.setAllVolume(value),
+                settings = settings
+            )
                 .associateBy { it.id }
             _uiState.update { state ->
                 if (state.globalVolume != value) {
@@ -600,10 +667,12 @@ class HomeViewModel(
 
     private suspend fun performDisplayBrightness(displayId: Long, value: Int) {
         val currentRepository = repository ?: return
+        val settings = currentSettings ?: return
         try {
-            val updatedDisplay = currentRepository
-                .setBrightness(displayId = displayId, value = value)
-                .toUiModel()
+            val updatedDisplay = mapDisplayWithInputState(
+                remoteDisplay = currentRepository.setBrightness(displayId = displayId, value = value),
+                settings = settings
+            )
             _uiState.update { state ->
                 val currentBrightness = state.displays.firstOrNull { it.id == displayId }?.brightness
                 if (currentBrightness != value) {
@@ -629,10 +698,12 @@ class HomeViewModel(
 
     private suspend fun performDisplayVolume(displayId: Long, value: Int) {
         val currentRepository = repository ?: return
+        val settings = currentSettings ?: return
         try {
-            val updatedDisplay = currentRepository
-                .setVolume(displayId = displayId, value = value)
-                .toUiModel()
+            val updatedDisplay = mapDisplayWithInputState(
+                remoteDisplay = currentRepository.setVolume(displayId = displayId, value = value),
+                settings = settings
+            )
             _uiState.update { state ->
                 val currentVolume = state.displays.firstOrNull { it.id == displayId }?.volume
                 if (currentVolume != value) {
@@ -657,22 +728,23 @@ class HomeViewModel(
     }
 
     private suspend fun loadDisplays(
-        repository: MonitorControlRepositoryContract
+        repository: MonitorControlRepositoryContract,
+        settings: ConnectionSettings
     ): List<DisplayUiModel> {
-        return repository.displays()
-            .asSequence()
-            .filterNot { it.isDummy }
-            .map { it.toUiModel() }
-            .toList()
+        return mapDisplaysWithInputState(
+            remoteDisplays = repository.displays(),
+            settings = settings
+        )
     }
 
     private suspend fun loadDisplaysWithRetry(
-        repository: MonitorControlRepositoryContract
+        repository: MonitorControlRepositoryContract,
+        settings: ConnectionSettings
     ): List<DisplayUiModel> {
         var attempt = 0
         while (true) {
             try {
-                return loadDisplays(repository)
+                return loadDisplays(repository, settings)
             } catch (error: Throwable) {
                 if (error is CancellationException) {
                     throw error
@@ -689,6 +761,53 @@ class HomeViewModel(
                 throw error
             }
         }
+    }
+
+    private suspend fun mapDisplaysWithInputState(
+        remoteDisplays: List<DisplayStatus>,
+        settings: ConnectionSettings
+    ): List<DisplayUiModel> {
+        val cachedInputs = inputStateStore.readForConnection(
+            host = settings.host,
+            port = settings.port
+        )
+        val displays = mutableListOf<DisplayUiModel>()
+        remoteDisplays.forEach { remoteDisplay ->
+            if (remoteDisplay.isDummy) {
+                return@forEach
+            }
+            persistRemoteInputIfKnown(settings = settings, remoteDisplay = remoteDisplay)
+            displays += remoteDisplay.toUiModel(cachedInput = cachedInputs[remoteDisplay.id])
+        }
+        return displays
+    }
+
+    private suspend fun mapDisplayWithInputState(
+        remoteDisplay: DisplayStatus,
+        settings: ConnectionSettings
+    ): DisplayUiModel {
+        persistRemoteInputIfKnown(settings = settings, remoteDisplay = remoteDisplay)
+        val cachedInput = inputStateStore.readForConnection(
+            host = settings.host,
+            port = settings.port
+        )[remoteDisplay.id]
+        return remoteDisplay.toUiModel(cachedInput = cachedInput)
+    }
+
+    private suspend fun persistRemoteInputIfKnown(
+        settings: ConnectionSettings,
+        remoteDisplay: DisplayStatus
+    ) {
+        val currentInput = remoteDisplay.input.current ?: return
+        if (!remoteDisplay.input.supported) {
+            return
+        }
+        inputStateStore.save(
+            host = settings.host,
+            port = settings.port,
+            displayId = remoteDisplay.id,
+            input = currentInput
+        )
     }
 
     private fun handleScanSuccess(results: List<ScannedHostCandidate>) {
@@ -810,18 +929,26 @@ class HomeViewModel(
 
     companion object {
         fun provideFactory(
-            settingsStore: ConnectionSettingsStoreDataSource
+            settingsStore: ConnectionSettingsStoreDataSource,
+            inputStateStore: DisplayInputStateStoreDataSource
         ): ViewModelProvider.Factory {
             return object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return HomeViewModel(settingsStore = settingsStore) as T
+                    return HomeViewModel(
+                        settingsStore = settingsStore,
+                        inputStateStore = inputStateStore
+                    ) as T
                 }
             }
         }
 
         fun createDefaultSettingsStore(applicationContext: android.content.Context): ConnectionSettingsStore {
             return ConnectionSettingsStore.from(applicationContext)
+        }
+
+        fun createDefaultInputStateStore(applicationContext: android.content.Context): DisplayInputStateStore {
+            return DisplayInputStateStore.from(applicationContext)
         }
     }
 }
@@ -836,8 +963,32 @@ private fun defaultRepositoryFactory(
     return MonitorControlRepository(api = api, moshi = moshi)
 }
 
-private fun DisplayStatus.toUiModel(): DisplayUiModel {
+private object NoOpDisplayInputStateStore : DisplayInputStateStoreDataSource {
+    override suspend fun readForConnection(host: String, port: Int): Map<Long, InputSource> = emptyMap()
+
+    override suspend fun save(host: String, port: Int, displayId: Long, input: InputSource) = Unit
+}
+
+private fun DisplayStatus.toUiModel(cachedInput: InputSource? = null): DisplayUiModel {
     val canControlVolume = capabilities.volume
+    val canControlInput = input.supported
+    val effectiveCurrentInput = if (canControlInput) {
+        input.current ?: cachedInput
+    } else {
+        null
+    }
+    val availableInputs = if (canControlInput) {
+        buildList {
+            effectiveCurrentInput?.let { add(it.toUiModel()) }
+            input.available.forEach { source ->
+                if (none { it.code == source.code }) {
+                    add(source.toUiModel())
+                }
+            }
+        }
+    } else {
+        emptyList()
+    }
     return DisplayUiModel(
         id = id,
         name = if (friendlyName.isBlank()) name else friendlyName,
@@ -847,6 +998,17 @@ private fun DisplayStatus.toUiModel(): DisplayUiModel {
         canControlBrightness = capabilities.brightness,
         canControlVolume = canControlVolume,
         canControlPower = capabilities.power,
+        canControlInput = canControlInput,
+        currentInput = effectiveCurrentInput?.toUiModel(),
+        availableInputs = availableInputs,
+        isInputFromLocalCache = canControlInput && input.current == null && effectiveCurrentInput != null,
         isVirtual = isVirtual
+    )
+}
+
+private fun InputSource.toUiModel(): InputSourceUiModel {
+    return InputSourceUiModel(
+        code = code.coerceIn(0, 255),
+        name = name
     )
 }

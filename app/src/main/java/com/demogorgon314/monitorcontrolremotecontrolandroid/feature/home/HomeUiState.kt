@@ -11,6 +11,11 @@ sealed interface ConnectionStatus {
     data object Connected : ConnectionStatus
 }
 
+data class InputSourceUiModel(
+    val code: Int,
+    val name: String
+)
+
 data class DisplayUiModel(
     val id: Long,
     val name: String,
@@ -20,6 +25,10 @@ data class DisplayUiModel(
     val canControlBrightness: Boolean,
     val canControlVolume: Boolean,
     val canControlPower: Boolean,
+    val canControlInput: Boolean = false,
+    val currentInput: InputSourceUiModel? = null,
+    val availableInputs: List<InputSourceUiModel> = emptyList(),
+    val isInputFromLocalCache: Boolean = false,
     val isVirtual: Boolean,
     val isBusy: Boolean = false
 )

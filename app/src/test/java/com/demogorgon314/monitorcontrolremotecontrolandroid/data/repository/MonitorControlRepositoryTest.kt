@@ -55,6 +55,24 @@ class MonitorControlRepositoryTest {
                           "capabilities": {
                             "brightness": true,
                             "power": true
+                          },
+                          "input": {
+                            "supported": true,
+                            "bestEffort": true,
+                            "current": {
+                              "code": 17,
+                              "name": "HDMI-1"
+                            },
+                            "available": [
+                              {
+                                "code": 17,
+                                "name": "HDMI-1"
+                              },
+                              {
+                                "code": 15,
+                                "name": "DP-1"
+                              }
+                            ]
                           }
                         }
                       ]
@@ -68,6 +86,9 @@ class MonitorControlRepositoryTest {
         assertEquals(1, displays.size)
         assertEquals(11L, displays.first().id)
         assertEquals("LG UltraWide", displays.first().friendlyName)
+        assertEquals(17, displays.first().input.current?.code)
+        assertEquals("HDMI-1", displays.first().input.current?.name)
+        assertEquals(2, displays.first().input.available.size)
 
         val request = server.takeRequest()
         assertEquals("/api/v1/displays", request.path)
@@ -146,6 +167,58 @@ class MonitorControlRepositoryTest {
         assertEquals("/api/v1/displays/7/volume", request.path)
         assertEquals("POST", request.method)
         assertEquals("{\"value\":35}", request.body.readUtf8())
+    }
+
+    @Test
+    fun `setInput should send expected endpoint and body`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "display": {
+                        "id": 7,
+                        "name": "Dell",
+                        "friendlyName": "Dell P2722H",
+                        "type": "other",
+                        "isVirtual": false,
+                        "isDummy": false,
+                        "brightness": 60,
+                        "volume": 35,
+                        "powerState": "on",
+                        "capabilities": {
+                          "brightness": true,
+                          "volume": true,
+                          "power": true
+                        },
+                        "input": {
+                          "supported": true,
+                          "bestEffort": true,
+                          "current": {
+                            "code": 17,
+                            "name": "HDMI-1"
+                          },
+                          "available": [
+                            {
+                              "code": 17,
+                              "name": "HDMI-1"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                    """.trimIndent()
+                )
+        )
+
+        repository.setInput(displayId = 7L, code = 17)
+
+        val request = server.takeRequest()
+        assertEquals("/api/v1/displays/7/input", request.path)
+        assertEquals("POST", request.method)
+        assertEquals("{\"code\":17}", request.body.readUtf8())
     }
 
     @Test
