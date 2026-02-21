@@ -35,19 +35,30 @@ fun DisplayCard(
     connected: Boolean,
     onBrightnessChanged: (Long, Int) -> Unit,
     onBrightnessChangeFinished: (Long) -> Unit,
+    onVolumeChanged: (Long, Int) -> Unit,
+    onVolumeChangeFinished: (Long) -> Unit,
     onPowerToggle: (Long, Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
     var lastHapticBrightness by remember(display.id) { mutableIntStateOf(display.brightness) }
+    var lastHapticVolume by remember(display.id) { mutableIntStateOf(display.volume) }
 
     LaunchedEffect(display.id, display.brightness) {
         lastHapticBrightness = display.brightness
     }
 
+    LaunchedEffect(display.id, display.volume) {
+        lastHapticVolume = display.volume
+    }
+
     val canAdjustBrightness = connected &&
         !display.isBusy &&
         display.canControlBrightness &&
+        display.powerOn
+    val canAdjustVolume = connected &&
+        !display.isBusy &&
+        display.canControlVolume &&
         display.powerOn
     val canTogglePower = connected && !display.isBusy && display.canControlPower
 
@@ -127,15 +138,57 @@ fun DisplayCard(
                 )
             }
 
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "音量",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "${display.volume}%",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
+
+                Slider(
+                    value = display.volume.toFloat(),
+                    onValueChange = {
+                        val nextValue = it.toInt().coerceIn(0, 100)
+                        if (nextValue != lastHapticVolume) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            lastHapticVolume = nextValue
+                        }
+                        onVolumeChanged(display.id, nextValue)
+                    },
+                    valueRange = 0f..100f,
+                    enabled = canAdjustVolume,
+                    onValueChangeFinished = { onVolumeChangeFinished(display.id) }
+                )
+            }
+
             if (!display.canControlBrightness) {
                 Text(
                     text = "该显示器不支持亮度控制",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )
-            } else if (!display.powerOn) {
+            }
+
+            if (!display.canControlVolume) {
                 Text(
-                    text = "显示器已关闭，亮度滑杆暂不可用",
+                    text = "该显示器不支持音量控制",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            if (!display.powerOn && (display.canControlBrightness || display.canControlVolume)) {
+                Text(
+                    text = "显示器已关闭，亮度和音量滑杆暂不可用",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )

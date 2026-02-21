@@ -32,19 +32,29 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun GlobalControlCard(
     brightness: Int,
+    volume: Int,
     enabled: Boolean,
+    canControlBrightness: Boolean,
+    canControlVolume: Boolean,
     busy: Boolean,
     onBrightnessChanged: (Int) -> Unit,
     onBrightnessChangeFinished: () -> Unit,
+    onVolumeChanged: (Int) -> Unit,
+    onVolumeChangeFinished: () -> Unit,
     onPowerAllOn: () -> Unit,
     onPowerAllOff: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
     var lastHapticBrightness by remember { mutableIntStateOf(brightness) }
+    var lastHapticVolume by remember { mutableIntStateOf(volume) }
 
     LaunchedEffect(brightness) {
         lastHapticBrightness = brightness
+    }
+
+    LaunchedEffect(volume) {
+        lastHapticVolume = volume
     }
 
     Card(
@@ -97,8 +107,39 @@ fun GlobalControlCard(
                         onBrightnessChanged(nextValue)
                     },
                     valueRange = 0f..100f,
-                    enabled = enabled && !busy,
+                    enabled = enabled && canControlBrightness && !busy,
                     onValueChangeFinished = onBrightnessChangeFinished
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "全部音量",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "$volume%",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
+                Slider(
+                    value = volume.toFloat(),
+                    onValueChange = {
+                        val nextValue = it.toInt().coerceIn(0, 100)
+                        if (nextValue != lastHapticVolume) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            lastHapticVolume = nextValue
+                        }
+                        onVolumeChanged(nextValue)
+                    },
+                    valueRange = 0f..100f,
+                    enabled = enabled && canControlVolume && !busy,
+                    onValueChangeFinished = onVolumeChangeFinished
                 )
             }
 

@@ -51,10 +51,14 @@ class MainActivity : ComponentActivity() {
                     onSaveSettings = viewModel::saveSettings,
                     onGlobalBrightnessChanged = viewModel::onGlobalBrightnessChanged,
                     onGlobalBrightnessChangeFinished = viewModel::onGlobalBrightnessChangeFinished,
+                    onGlobalVolumeChanged = viewModel::onGlobalVolumeChanged,
+                    onGlobalVolumeChangeFinished = viewModel::onGlobalVolumeChangeFinished,
                     onPowerAllOn = { viewModel.onPowerAll(turnOn = true) },
                     onPowerAllOff = { viewModel.onPowerAll(turnOn = false) },
                     onDisplayBrightnessChanged = viewModel::onDisplayBrightnessChanged,
                     onDisplayBrightnessChangeFinished = viewModel::onDisplayBrightnessChangeFinished,
+                    onDisplayVolumeChanged = viewModel::onDisplayVolumeChanged,
+                    onDisplayVolumeChangeFinished = viewModel::onDisplayVolumeChangeFinished,
                     onDisplayPowerToggle = viewModel::onDisplayPowerToggle
                 )
             }

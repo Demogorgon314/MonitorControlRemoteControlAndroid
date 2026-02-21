@@ -62,10 +62,14 @@ fun HomeScreen(
     onSaveSettings: () -> Unit,
     onGlobalBrightnessChanged: (Int) -> Unit,
     onGlobalBrightnessChangeFinished: () -> Unit,
+    onGlobalVolumeChanged: (Int) -> Unit,
+    onGlobalVolumeChangeFinished: () -> Unit,
     onPowerAllOn: () -> Unit,
     onPowerAllOff: () -> Unit,
     onDisplayBrightnessChanged: (Long, Int) -> Unit,
     onDisplayBrightnessChangeFinished: (Long) -> Unit,
+    onDisplayVolumeChanged: (Long, Int) -> Unit,
+    onDisplayVolumeChangeFinished: (Long) -> Unit,
     onDisplayPowerToggle: (Long, Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -99,10 +103,19 @@ fun HomeScreen(
                 item {
                     GlobalControlCard(
                         brightness = uiState.globalBrightness,
+                        volume = uiState.globalVolume,
                         enabled = uiState.connectionStatus == ConnectionStatus.Connected,
+                        canControlBrightness = uiState.displays.any {
+                            it.canControlBrightness && it.powerOn
+                        },
+                        canControlVolume = uiState.displays.any {
+                            it.canControlVolume && it.powerOn
+                        },
                         busy = uiState.isGlobalBusy,
                         onBrightnessChanged = onGlobalBrightnessChanged,
                         onBrightnessChangeFinished = onGlobalBrightnessChangeFinished,
+                        onVolumeChanged = onGlobalVolumeChanged,
+                        onVolumeChangeFinished = onGlobalVolumeChangeFinished,
                         onPowerAllOn = onPowerAllOn,
                         onPowerAllOff = onPowerAllOff
                     )
@@ -128,6 +141,8 @@ fun HomeScreen(
                             connected = uiState.connectionStatus == ConnectionStatus.Connected,
                             onBrightnessChanged = onDisplayBrightnessChanged,
                             onBrightnessChangeFinished = onDisplayBrightnessChangeFinished,
+                            onVolumeChanged = onDisplayVolumeChanged,
+                            onVolumeChangeFinished = onDisplayVolumeChangeFinished,
                             onPowerToggle = onDisplayPowerToggle
                         )
                     }

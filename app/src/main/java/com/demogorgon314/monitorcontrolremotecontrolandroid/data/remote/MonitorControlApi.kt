@@ -24,6 +24,17 @@ interface MonitorControlApi {
         @Body body: BrightnessRequest
     ): Response<DisplaysResponse>
 
+    @POST("api/v1/displays/{id}/volume")
+    suspend fun setDisplayVolume(
+        @Path("id") displayId: Long,
+        @Body body: BrightnessRequest
+    ): Response<SingleDisplayResponse>
+
+    @POST("api/v1/displays/volume")
+    suspend fun setAllVolume(
+        @Body body: BrightnessRequest
+    ): Response<DisplaysResponse>
+
     @POST("api/v1/displays/{id}/power")
     suspend fun setDisplayPower(
         @Path("id") displayId: Long,

@@ -49,8 +49,10 @@ class HomeViewModel(
     private var currentSettings: ConnectionSettings? = null
     private var repository: MonitorControlRepositoryContract? = null
     private var lastSentGlobalBrightness: Int? = null
+    private var lastSentGlobalVolume: Int? = null
     private val lastSentDisplayBrightness = mutableMapOf<Long, Int>()
     private var scanJob: Job? = null
+    private val lastSentDisplayVolume = mutableMapOf<Long, Int>()
 
     init {
         bootstrap()
@@ -78,7 +80,8 @@ class HomeViewModel(
                             connectionStatus = ConnectionStatus.Connected,
                             isRefreshing = false,
                             displays = displays,
-                            globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness)
+                            globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness),
+                            globalVolume = calculateGlobalVolume(displays, state.globalVolume)
                         )
                     }
                 }
@@ -277,6 +280,34 @@ class HomeViewModel(
         }
     }
 
+    fun onGlobalVolumeChanged(value: Int) {
+        val normalized = value.coerceIn(0, 100)
+        val previous = _uiState.value.globalVolume
+        _uiState.update { state ->
+            val updatedDisplays = state.displays.map { display ->
+                if (display.canControlVolume && display.powerOn) {
+                    display.copy(volume = normalized)
+                } else {
+                    display
+                }
+            }
+            state.copy(
+                globalVolume = normalized,
+                displays = updatedDisplays
+            )
+        }
+        if (normalized != previous) {
+            submitGlobalVolume(normalized)
+        }
+    }
+
+    fun onGlobalVolumeChangeFinished() {
+        val value = _uiState.value.globalVolume
+        if (lastSentGlobalVolume != value) {
+            submitGlobalVolume(value)
+        }
+    }
+
     fun onPowerAll(turnOn: Boolean) {
         if (_uiState.value.isGlobalBusy) {
             return
@@ -301,7 +332,8 @@ class HomeViewModel(
                         connectionStatus = ConnectionStatus.Connected,
                         isGlobalBusy = false,
                         displays = displays,
-                        globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness)
+                        globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness),
+                        globalVolume = calculateGlobalVolume(displays, state.globalVolume)
                     )
                 }
             }.onFailure { error ->
@@ -335,6 +367,30 @@ class HomeViewModel(
         }
     }
 
+    fun onDisplayVolumeChanged(displayId: Long, value: Int) {
+        val normalized = value.coerceIn(0, 100)
+        val previous = _uiState.value.displays.firstOrNull { it.id == displayId }?.volume
+        _uiState.update { state ->
+            val updatedDisplays = state.displays.map { display ->
+                if (display.id == displayId) display.copy(volume = normalized) else display
+            }
+            state.copy(
+                displays = updatedDisplays,
+                globalVolume = calculateGlobalVolume(updatedDisplays, state.globalVolume)
+            )
+        }
+        if (previous != null && previous != normalized) {
+            submitDisplayVolume(displayId = displayId, value = normalized)
+        }
+    }
+
+    fun onDisplayVolumeChangeFinished(displayId: Long) {
+        val display = _uiState.value.displays.firstOrNull { it.id == displayId } ?: return
+        if (lastSentDisplayVolume[displayId] != display.volume) {
+            submitDisplayVolume(displayId = displayId, value = display.volume)
+        }
+    }
+
     fun onDisplayPowerToggle(displayId: Long, turnOn: Boolean) {
         if (_uiState.value.displays.firstOrNull { it.id == displayId }?.isBusy == true) {
             return
@@ -358,7 +414,8 @@ class HomeViewModel(
                     state.copy(
                         connectionStatus = ConnectionStatus.Connected,
                         displays = displays,
-                        globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness)
+                        globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness),
+                        globalVolume = calculateGlobalVolume(displays, state.globalVolume)
                     )
                 }
             }.onFailure { error ->
@@ -427,7 +484,8 @@ class HomeViewModel(
                         isLoading = false,
                         isRefreshing = false,
                         displays = displays,
-                        globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness)
+                        globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness),
+                        globalVolume = calculateGlobalVolume(displays, state.globalVolume)
                     )
                 }
             }.onFailure { error ->
@@ -461,10 +519,24 @@ class HomeViewModel(
         }
     }
 
+    private fun submitGlobalVolume(value: Int) {
+        lastSentGlobalVolume = value
+        viewModelScope.launch(ioDispatcher) {
+            performGlobalVolume(value)
+        }
+    }
+
     private fun submitDisplayBrightness(displayId: Long, value: Int) {
         lastSentDisplayBrightness[displayId] = value
         viewModelScope.launch(ioDispatcher) {
             performDisplayBrightness(displayId = displayId, value = value)
+        }
+    }
+
+    private fun submitDisplayVolume(displayId: Long, value: Int) {
+        lastSentDisplayVolume[displayId] = value
+        viewModelScope.launch(ioDispatcher) {
+            performDisplayVolume(displayId = displayId, value = value)
         }
     }
 
@@ -483,7 +555,39 @@ class HomeViewModel(
                 state.copy(
                     connectionStatus = ConnectionStatus.Connected,
                     displays = displays,
-                    globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness)
+                    globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness),
+                    globalVolume = calculateGlobalVolume(displays, state.globalVolume)
+                )
+            }
+        } catch (error: Throwable) {
+            if (error is CancellationException) {
+                throw error
+            }
+            emitError(error)
+        }
+    }
+
+    private suspend fun performGlobalVolume(value: Int) {
+        val currentRepository = repository ?: return
+        try {
+            val updatedDisplays = currentRepository.setAllVolume(value)
+                .asSequence()
+                .filterNot { it.isDummy }
+                .map { it.toUiModel() }
+                .toList()
+                .associateBy { it.id }
+            _uiState.update { state ->
+                if (state.globalVolume != value) {
+                    return@update state
+                }
+                val displays = state.displays.map { display ->
+                    updatedDisplays[display.id] ?: display
+                }
+                state.copy(
+                    connectionStatus = ConnectionStatus.Connected,
+                    displays = displays,
+                    globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness),
+                    globalVolume = calculateGlobalVolume(displays, state.globalVolume)
                 )
             }
         } catch (error: Throwable) {
@@ -511,7 +615,37 @@ class HomeViewModel(
                 state.copy(
                     connectionStatus = ConnectionStatus.Connected,
                     displays = displays,
-                    globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness)
+                    globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness),
+                    globalVolume = calculateGlobalVolume(displays, state.globalVolume)
+                )
+            }
+        } catch (error: Throwable) {
+            if (error is CancellationException) {
+                throw error
+            }
+            emitError(error)
+        }
+    }
+
+    private suspend fun performDisplayVolume(displayId: Long, value: Int) {
+        val currentRepository = repository ?: return
+        try {
+            val updatedDisplay = currentRepository
+                .setVolume(displayId = displayId, value = value)
+                .toUiModel()
+            _uiState.update { state ->
+                val currentVolume = state.displays.firstOrNull { it.id == displayId }?.volume
+                if (currentVolume != value) {
+                    return@update state
+                }
+                val displays = state.displays.map { display ->
+                    if (display.id == displayId) updatedDisplay else display
+                }
+                state.copy(
+                    connectionStatus = ConnectionStatus.Connected,
+                    displays = displays,
+                    globalBrightness = calculateGlobalBrightness(displays, state.globalBrightness),
+                    globalVolume = calculateGlobalVolume(displays, state.globalVolume)
                 )
             }
         } catch (error: Throwable) {
@@ -641,7 +775,7 @@ class HomeViewModel(
                 apiError.httpCode == 503 -> "服务暂不可用，请稍后重试"
                 apiError.httpCode == 400 &&
                     apiError.apiCode == "bad_request" &&
-                    apiError.message.contains("request timeout", ignoreCase = true) -> "请求过于频繁，请稍慢拖动亮度滑杆"
+                    apiError.message.contains("request timeout", ignoreCase = true) -> "请求过于频繁，请稍慢拖动亮度或音量滑杆"
                 apiError.message.isNotBlank() -> apiError.message
                 else -> "请求失败（${apiError.httpCode}）"
             }
@@ -662,6 +796,16 @@ class HomeViewModel(
             return fallback
         }
         return brightnessValues.average().roundToInt().coerceIn(0, 100)
+    }
+
+    private fun calculateGlobalVolume(displays: List<DisplayUiModel>, fallback: Int): Int {
+        val volumeValues = displays
+            .filter { it.canControlVolume }
+            .map { it.volume }
+        if (volumeValues.isEmpty()) {
+            return fallback
+        }
+        return volumeValues.average().roundToInt().coerceIn(0, 100)
     }
 
     companion object {
@@ -693,12 +837,15 @@ private fun defaultRepositoryFactory(
 }
 
 private fun DisplayStatus.toUiModel(): DisplayUiModel {
+    val canControlVolume = capabilities.volume
     return DisplayUiModel(
         id = id,
         name = if (friendlyName.isBlank()) name else friendlyName,
         brightness = brightness.coerceIn(0, 100),
+        volume = (volume ?: 0).coerceIn(0, 100),
         powerOn = !powerState.equals("off", ignoreCase = true),
         canControlBrightness = capabilities.brightness,
+        canControlVolume = canControlVolume,
         canControlPower = capabilities.power,
         isVirtual = isVirtual
     )

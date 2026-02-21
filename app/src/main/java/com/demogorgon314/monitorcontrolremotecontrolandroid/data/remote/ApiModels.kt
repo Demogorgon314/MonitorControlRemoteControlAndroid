@@ -7,6 +7,7 @@ data class HealthResponse(
 
 data class DisplayCapabilities(
     val brightness: Boolean,
+    val volume: Boolean = false,
     val power: Boolean
 )
 
@@ -18,6 +19,7 @@ data class DisplayStatus(
     val isVirtual: Boolean,
     val isDummy: Boolean,
     val brightness: Int,
+    val volume: Int? = null,
     val powerState: String,
     val capabilities: DisplayCapabilities
 )

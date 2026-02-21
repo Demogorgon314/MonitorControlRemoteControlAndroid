@@ -129,6 +129,40 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun `global volume should sync on every percent change`() = runTest {
+        val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
+        val repository = FakeRepository()
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = HomeViewModel(
+            settingsStore = store,
+            repositoryFactory = { repository },
+            ioDispatcher = dispatcher
+        )
+
+        advanceUntilIdle()
+
+        viewModel.onGlobalVolumeChanged(20)
+        advanceUntilIdle()
+        assertEquals(1, repository.setAllVolumeCalls)
+        assertEquals(20, repository.lastSetAllVolume)
+
+        viewModel.onGlobalVolumeChanged(35)
+        advanceUntilIdle()
+        assertEquals(2, repository.setAllVolumeCalls)
+        assertEquals(35, repository.lastSetAllVolume)
+
+        viewModel.onGlobalVolumeChanged(35)
+        advanceUntilIdle()
+        assertEquals(2, repository.setAllVolumeCalls)
+
+        viewModel.onGlobalVolumeChanged(42)
+        viewModel.onGlobalVolumeChangeFinished()
+        advanceUntilIdle()
+        assertEquals(3, repository.setAllVolumeCalls)
+        assertEquals(42, repository.lastSetAllVolume)
+    }
+
+    @Test
     fun `display power failure should clear busy state and emit snackbar message`() = runTest {
         val store = FakeSettingsStore(initialSettings = TEST_SETTINGS)
         val repository = FakeRepository(failPowerToggle = true)
@@ -314,9 +348,11 @@ class HomeViewModelTest {
                 isVirtual = false,
                 isDummy = false,
                 brightness = 68,
+                volume = 26,
                 powerState = "on",
                 capabilities = DisplayCapabilities(
                     brightness = true,
+                    volume = true,
                     power = true
                 )
             )
@@ -327,6 +363,10 @@ class HomeViewModelTest {
         var setAllBrightnessCalls: Int = 0
             private set
         var lastSetAllBrightness: Int = -1
+            private set
+        var setAllVolumeCalls: Int = 0
+            private set
+        var lastSetAllVolume: Int = -1
             private set
 
         override suspend fun health(): HealthResponse {
@@ -349,6 +389,20 @@ class HomeViewModelTest {
             setAllBrightnessCalls += 1
             lastSetAllBrightness = value
             displaysState = displaysState.map { it.copy(brightness = value) }
+            return displaysState
+        }
+
+        override suspend fun setVolume(displayId: Long, value: Int): DisplayStatus {
+            val current = displaysState.first { it.id == displayId }
+            val updated = current.copy(volume = value)
+            displaysState = displaysState.map { if (it.id == displayId) updated else it }
+            return updated
+        }
+
+        override suspend fun setAllVolume(value: Int): List<DisplayStatus> {
+            setAllVolumeCalls += 1
+            lastSetAllVolume = value
+            displaysState = displaysState.map { it.copy(volume = value) }
             return displaysState
         }
 

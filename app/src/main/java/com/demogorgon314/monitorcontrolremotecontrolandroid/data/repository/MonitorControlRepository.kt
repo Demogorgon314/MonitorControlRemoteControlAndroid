@@ -21,6 +21,8 @@ interface MonitorControlRepositoryContract {
     suspend fun displays(): List<DisplayStatus>
     suspend fun setBrightness(displayId: Long, value: Int): DisplayStatus
     suspend fun setAllBrightness(value: Int): List<DisplayStatus>
+    suspend fun setVolume(displayId: Long, value: Int): DisplayStatus
+    suspend fun setAllVolume(value: Int): List<DisplayStatus>
     suspend fun powerOff(displayId: Long): SinglePowerResponse
     suspend fun powerOn(displayId: Long): SinglePowerResponse
     suspend fun powerOffAll(): AllPowerResponse
@@ -50,6 +52,14 @@ class MonitorControlRepository(
 
     override suspend fun setAllBrightness(value: Int): List<DisplayStatus> {
         return execute { api.setAllBrightness(BrightnessRequest(value)) }.displays
+    }
+
+    override suspend fun setVolume(displayId: Long, value: Int): DisplayStatus {
+        return execute { api.setDisplayVolume(displayId, BrightnessRequest(value)) }.display
+    }
+
+    override suspend fun setAllVolume(value: Int): List<DisplayStatus> {
+        return execute { api.setAllVolume(BrightnessRequest(value)) }.displays
     }
 
     override suspend fun powerOff(displayId: Long): SinglePowerResponse {

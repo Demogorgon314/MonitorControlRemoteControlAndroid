@@ -28,8 +28,10 @@ class HomeScreenTest {
                     id = 1L,
                     name = "LG UltraWide",
                     brightness = 68,
+                    volume = 24,
                     powerOn = true,
                     canControlBrightness = true,
+                    canControlVolume = true,
                     canControlPower = true,
                     isVirtual = false
                 ),
@@ -37,8 +39,10 @@ class HomeScreenTest {
                     id = 2L,
                     name = "Dell P2722H",
                     brightness = 60,
+                    volume = 31,
                     powerOn = true,
                     canControlBrightness = true,
+                    canControlVolume = true,
                     canControlPower = true,
                     isVirtual = false
                 )
@@ -62,10 +66,14 @@ class HomeScreenTest {
                     onSaveSettings = {},
                     onGlobalBrightnessChanged = {},
                     onGlobalBrightnessChangeFinished = {},
+                    onGlobalVolumeChanged = {},
+                    onGlobalVolumeChangeFinished = {},
                     onPowerAllOn = {},
                     onPowerAllOff = {},
                     onDisplayBrightnessChanged = { _, _ -> },
                     onDisplayBrightnessChangeFinished = {},
+                    onDisplayVolumeChanged = { _, _ -> },
+                    onDisplayVolumeChangeFinished = {},
                     onDisplayPowerToggle = { _, _ -> }
                 )
             }
@@ -108,10 +116,14 @@ class HomeScreenTest {
                     onSaveSettings = {},
                     onGlobalBrightnessChanged = {},
                     onGlobalBrightnessChangeFinished = {},
+                    onGlobalVolumeChanged = {},
+                    onGlobalVolumeChangeFinished = {},
                     onPowerAllOn = {},
                     onPowerAllOff = {},
                     onDisplayBrightnessChanged = { _, _ -> },
                     onDisplayBrightnessChangeFinished = {},
+                    onDisplayVolumeChanged = { _, _ -> },
+                    onDisplayVolumeChangeFinished = {},
                     onDisplayPowerToggle = { _, _ -> }
                 )
             }
@@ -144,10 +156,14 @@ class HomeScreenTest {
                     onSaveSettings = {},
                     onGlobalBrightnessChanged = {},
                     onGlobalBrightnessChangeFinished = {},
+                    onGlobalVolumeChanged = {},
+                    onGlobalVolumeChangeFinished = {},
                     onPowerAllOn = {},
                     onPowerAllOff = {},
                     onDisplayBrightnessChanged = { _, _ -> },
                     onDisplayBrightnessChangeFinished = {},
+                    onDisplayVolumeChanged = { _, _ -> },
+                    onDisplayVolumeChangeFinished = {},
                     onDisplayPowerToggle = { _, _ -> }
                 )
             }

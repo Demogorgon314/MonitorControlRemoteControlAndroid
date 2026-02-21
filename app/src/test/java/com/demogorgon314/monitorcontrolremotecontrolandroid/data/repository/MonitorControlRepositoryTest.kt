@@ -111,6 +111,44 @@ class MonitorControlRepositoryTest {
     }
 
     @Test
+    fun `setVolume should send expected endpoint and body`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "display": {
+                        "id": 7,
+                        "name": "Dell",
+                        "friendlyName": "Dell P2722H",
+                        "type": "other",
+                        "isVirtual": false,
+                        "isDummy": false,
+                        "brightness": 60,
+                        "volume": 35,
+                        "powerState": "on",
+                        "capabilities": {
+                          "brightness": true,
+                          "volume": true,
+                          "power": true
+                        }
+                      }
+                    }
+                    """.trimIndent()
+                )
+        )
+
+        repository.setVolume(displayId = 7L, value = 35)
+
+        val request = server.takeRequest()
+        assertEquals("/api/v1/displays/7/volume", request.path)
+        assertEquals("POST", request.method)
+        assertEquals("{\"value\":35}", request.body.readUtf8())
+    }
+
+    @Test
     fun `empty successful body should throw api exception`() = runTest {
         server.enqueue(MockResponse().setResponseCode(200))
 

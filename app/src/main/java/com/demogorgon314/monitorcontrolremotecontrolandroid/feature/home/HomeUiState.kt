@@ -15,8 +15,10 @@ data class DisplayUiModel(
     val id: Long,
     val name: String,
     val brightness: Int,
+    val volume: Int,
     val powerOn: Boolean,
     val canControlBrightness: Boolean,
+    val canControlVolume: Boolean,
     val canControlPower: Boolean,
     val isVirtual: Boolean,
     val isBusy: Boolean = false
@@ -28,6 +30,7 @@ data class HomeUiState(
     val connectionStatus: ConnectionStatus = ConnectionStatus.Disconnected,
     val displays: List<DisplayUiModel> = emptyList(),
     val globalBrightness: Int = 50,
+    val globalVolume: Int = 50,
     val isGlobalBusy: Boolean = false,
     val showSettingsDialog: Boolean = false,
     val isScanningHosts: Boolean = false,
