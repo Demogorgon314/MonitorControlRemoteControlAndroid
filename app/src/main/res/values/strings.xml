@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">MonitorControl</string>
+    <string name="connection_status">连接状态</string>
+    <string name="refresh">刷新</string>
+    <string name="settings">设置</string>
+    <string name="show_token">显示 Token</string>
+    <string name="hide_token">隐藏 Token</string>
+</resources>
